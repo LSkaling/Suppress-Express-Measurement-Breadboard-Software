@@ -3,7 +3,6 @@
 #include "Arduino.h"
 #include "Adafruit_HX711.h"
 
-
 // Define pins for Teensy 4.0
 #define CE_PIN 16
 #define CSN_PIN 17
@@ -25,6 +24,23 @@ struct DataPacket {
 
 DataPacket dataToSend;
 
+// Fast sample-averaging
+#define POWER 4
+#define N_AVG (1 << POWER)
+int buffer[N_AVG];
+int read_index = 0;
+int writeMask = N_AVG - 1;
+int sum = 0;
+
+int readAvg(int in) {
+  sum -= buffer[read_index];
+  buffer[read_index] = in;
+  sum += in;
+  read_index++;
+  read_index &= writeMask;
+  return (sum >> POWER);
+}
+
 void setup() {
   Serial.begin(115200);
 
@@ -42,31 +58,18 @@ void setup() {
 
     // Initialize the HX711
   hx711.begin();
-
-  // read and toss 3 values each
-  Serial.println("Tareing....");
-  for (uint8_t t=0; t<3; t++) {
-    hx711.tareA(hx711.readChannelRaw(CHAN_A_GAIN_128));
-    hx711.tareA(hx711.readChannelRaw(CHAN_A_GAIN_128));
-    hx711.tareB(hx711.readChannelRaw(CHAN_B_GAIN_32));
-    hx711.tareB(hx711.readChannelRaw(CHAN_B_GAIN_32));
-  }
-
 }
 
 void loop() {
-
   int32_t weightA128 = hx711.readChannelBlocking(CHAN_A_GAIN_128);
 
-  //average out of 100 readings
-  for (int i = 0; i < 10; i++) {
-    weightA128 += hx711.readChannelBlocking(CHAN_A_GAIN_128);
-  }
-  weightA128 /= 100;
+  int out = readAvg(weightA128);
 
   //Serial.print("Channel A (Gain 128): ");
-  Serial.println(weightA128);
+  Serial.println(out);
 
+  // For Ben's purposes, don't bother sending on radio
+  /*
   // Example data to send
   dataToSend.sensorValue = weightA128;
 
@@ -75,8 +78,7 @@ void loop() {
   } else {
     Serial.println("Data transmission failed");
   }
+  */
 
-
-
-  delay(10);
+  delay(1000 / 80); // ADC runs at 80 samples per second
 }
