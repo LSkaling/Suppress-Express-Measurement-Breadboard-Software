@@ -32,18 +32,23 @@ class Sensor:
     T = int(1000 / 80) # sampling interval
 
     def tare(self):
-        self.zero = self.reading
+        if self.calib != 1: # Zero in arbitrary units
+            self.zero = self.weight
+
+        if self.calib == 1:
+            self.zero = self.reading
 
     def calibrate(self):
         self.calib = askfloat("Calibrate sensor", "Current weight on sensor") / self.weight
+        self.zero = 0
 
     def update_measurement(self):
         bytes = ser.readline()
         bytes = bytes.decode("utf-8")
         self.reading = float(str(bytes[0:-2])) # strip newlines (CRLF) and convert
-        self.weight = (self.reading - self.zero) * self.calib
-        bytes = "Weight: " + "{:.1f}".format(self.weight) + "g"
-        measurement.config(text=bytes)
+        self.weight = (self.reading * self.calib) - self.zero
+        txt = "Weight: " + "{:.1f}".format(self.weight) + "g"
+        measurement.config(text = txt)
         root.after(self.T, self.update_measurement)
 
 # Single sensor display
