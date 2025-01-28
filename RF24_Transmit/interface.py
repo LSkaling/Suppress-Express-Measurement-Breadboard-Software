@@ -32,10 +32,10 @@ class Sensor:
     T = int(1000 / 80) # sampling interval
 
     def tare(self):
-        if self.calib != 1: # Zero in arbitrary units
+        if self.calib != 1: # Zero in grams
             self.zero = self.weight
 
-        if self.calib == 1:
+        if self.calib == 1: # Zero in arbitrary units
             self.zero = self.reading
 
     def calibrate(self):
