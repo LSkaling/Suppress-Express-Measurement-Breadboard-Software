@@ -1,82 +1,118 @@
 #include <SPI.h>
 #include <RF24.h>
-#include "Arduino.h"
-#include "Adafruit_HX711.h"
+#include <RF24Network.h>
+#include <Wire.h>
+#include "SparkFun_Qwiic_Scale_NAU7802_Arduino_Library.h" // Click here to get the library: http://librarymanager/All#SparkFun_NAU8702
 
+// Define pins for the Teensy 4.0 (adjust for your hardware)
+#define CE_PIN 2
+#define CSN_PIN 21
 
-// Define pins for Teensy 4.0
-#define CE_PIN 16
-#define CSN_PIN 17
+#define loadcell_switch 16
 
-// Define the pins for the HX711 communication
-const uint8_t DATA_PIN = 3;  // Can use any pins!
-const uint8_t CLOCK_PIN = 2; // Can use any pins!
+NAU7802 myScale; // Create instance of the NAU7802 class
+
+const bool branchNode = false; // Set to true if this node is a branch node
+
+// Assign this node a unique address
+const uint16_t thisNode = 021;   // Example: Sub-node 01
+const uint16_t masterNode = 01; // Master node address
+
+int readingOffset = 0; // Offset to calibrate the scale
 
 RF24 radio(CE_PIN, CSN_PIN);
+RF24Network network(radio);
 
-Adafruit_HX711 hx711(DATA_PIN, CLOCK_PIN);
-
-// Address for the transmitter
-const byte receiverAddress[6] = "1Node";
-
-struct DataPacket {
-  int sensorValue;
+struct DataPacket
+{
+  int sensorValue; // Example data structure
 };
 
-DataPacket dataToSend;
-
-void setup() {
+void setup()
+{
   Serial.begin(115200);
 
-  if (!radio.begin()) {
+  if (!radio.begin())
+  {
     Serial.println("NRF24L01 not detected!");
-    while (1);
+    while (1)
+      ; // Halt if no module is found
   }
 
-  radio.setPALevel(RF24_PA_HIGH);
-  radio.setDataRate(RF24_1MBPS);
-  radio.setChannel(115);
-  radio.openWritingPipe(receiverAddress);
-  radio.stopListening();
-  Serial.println("Transmitter ready on Teensy 4.0");
+  network.begin(90, thisNode); // Channel 90, Sub-node address
+  Serial.println("Sub-node initialized.");
 
-    // Initialize the HX711
-  hx711.begin();
+  Wire.begin();
 
-  // read and toss 3 values each
-  Serial.println("Tareing....");
-  for (uint8_t t=0; t<3; t++) {
-    hx711.tareA(hx711.readChannelRaw(CHAN_A_GAIN_128));
-    hx711.tareA(hx711.readChannelRaw(CHAN_A_GAIN_128));
-    hx711.tareB(hx711.readChannelRaw(CHAN_B_GAIN_32));
-    hx711.tareB(hx711.readChannelRaw(CHAN_B_GAIN_32));
+  if (myScale.begin() == false)
+  {
+    Serial.println("Scale not detected. Please check wiring. Freezing...");
+    while (1)
+      ;
   }
+  Serial.println("Scale detected!");
 
+  myScale.powerUp(); // Power up scale. This scale takes ~600ms to boot and take reading.
 }
 
-void loop() {
+void loop()
+{
 
-  int32_t weightA128 = hx711.readChannelBlocking(CHAN_A_GAIN_128);
-
-  //average out of 100 readings
-  for (int i = 0; i < 10; i++) {
-    weightA128 += hx711.readChannelBlocking(CHAN_A_GAIN_128);
+  if(millis() % 1000 == 0){
+    digitalWrite(loadcell_switch, HIGH);
+  }else{
+    digitalWrite(loadcell_switch, LOW);
   }
-  weightA128 /= 100;
+  // myScale.powerDown(); // Power down to ~200nA
+  // delay(1000);
 
-  //Serial.print("Channel A (Gain 128): ");
-  Serial.println(weightA128);
+  // Time how long it takes for scale to take a reading
+  unsigned long startTime = millis();
+  while (myScale.available() == false)
+    delay(1);
 
-  // Example data to send
-  dataToSend.sensorValue = weightA128;
+  int32_t currentReading = myScale.getReading();
+  // Serial.print("Startup time: ");
+  // Serial.print(millis() - startTime);
+  // Serial.print(", ");
+  Serial.println(currentReading);
 
-  if (radio.write(&dataToSend, sizeof(dataToSend))) {
-    Serial.println("Data sent successfully");
-  } else {
-    Serial.println("Data transmission failed");
+  // Update the network to handle incoming/outgoing messages
+  network.update();
+
+  // Send a message to the master node
+  DataPacket dataToSend = {random(0, 100)}; // Random sensor value for demonstration
+  RF24NetworkHeader header(masterNode);     // Header for the master node
+  bool success = network.write(header, &dataToSend, sizeof(dataToSend));
+
+  if (success)
+  {
+    Serial.print("Message sent to master: ");
+    Serial.println(dataToSend.sensorValue);
+  }
+  else
+  {
+    //Serial.println("Message sending failed.");
   }
 
+  while (branchNode && network.available())
+  {
+    RF24NetworkHeader header;
+    char message[32];
+    network.read(header, &message, sizeof(message));
 
+    // Print the received message
+    Serial.print("Received message from Node ");
+    Serial.print(header.from_node);
+    Serial.print(": ");
+    Serial.println(message);
+
+    // Forward the message to the master (Node 00)
+    RF24NetworkHeader forwardHeader(00); // Destination: Master Node
+    network.write(forwardHeader, &message, sizeof(message));
+
+    Serial.println("Message relayed to Master Node (00).");
+  }
 
   delay(10);
 }
