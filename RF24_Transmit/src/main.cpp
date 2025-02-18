@@ -8,8 +8,6 @@
 #define CE_PIN PB1
 #define CSN_PIN PB0
 
-#define 
-
 #define LED PB10
 
 NAU7802 myScale; // Create instance of the NAU7802 class
@@ -34,7 +32,25 @@ void setup()
 {
   delay(5000);
 
-  pinMode(LED, OUTPUT);
+// Fast sample-averaging
+#define POWER 4
+#define N_AVG (1 << POWER)
+int buffer[N_AVG];
+int read_index = 0;
+int writeMask = N_AVG - 1;
+int sum = 0;
+
+int readAvg(int in) {
+  sum -= buffer[read_index];
+  buffer[read_index] = in;
+  sum += in;
+  read_index++;
+  read_index &= writeMask;
+  return (sum >> POWER);
+}
+
+void setup() {
+  Serial.begin(115200);
 
 
   Serial1.begin(9600);
@@ -115,6 +131,7 @@ void loop()
   {
     //Serial1.println("Message sending failed.");
   }
+  */
 
   while (branchNode && network.available())
   {
@@ -134,6 +151,5 @@ void loop()
 
     Serial1.println("Message relayed to Master Node (00).");
   }
-
-  delay(100);
+  delay(1000 / 80); // ADC runs at 80 samples per second
 }
