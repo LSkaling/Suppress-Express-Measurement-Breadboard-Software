@@ -34,14 +34,21 @@ void loop()
   network.update();
 
   // Check for incoming messages
-  while (network.available())
+ while (network.available())
   {
     RF24NetworkHeader header;
     DataPacket receivedData;
     network.read(header, &receivedData, sizeof(receivedData));
-    Serial.print("Received from node ");
-    Serial.print(header.from_node);
-    Serial.print(": ");
-    Serial.println(receivedData.sensorValue);
+    uint16_t nodeNumber = header.from_node;
+    int data = receivedData.sensorValue;
+    int zero = 0;
+    Serial.write(zero);
+    Serial.write(nodeNumber);
+    //Serial.print(": ");
+    Serial.write(data);
+    //Serial.print(" ");
+    // if(nodeNumber == 3){
+    //   Serial.println(" ");
+    // }
   }
 }

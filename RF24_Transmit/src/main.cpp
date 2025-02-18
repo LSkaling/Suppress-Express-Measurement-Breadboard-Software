@@ -5,18 +5,20 @@
 #include "SparkFun_Qwiic_Scale_NAU7802_Arduino_Library.h" // Click here to get the library: http://librarymanager/All#SparkFun_NAU8702
 
 // Define pins for the Teensy 4.0 (adjust for your hardware)
-#define CE_PIN 2
-#define CSN_PIN 21
+#define CE_PIN PB1
+#define CSN_PIN PB0
 
-#define loadcell_switch 16
+#define 
+
+#define LED PB10
 
 NAU7802 myScale; // Create instance of the NAU7802 class
 
 const bool branchNode = false; // Set to true if this node is a branch node
 
 // Assign this node a unique address
-const uint16_t thisNode = 021;   // Example: Sub-node 01
-const uint16_t masterNode = 01; // Master node address
+const uint16_t thisNode = 01;   // Example: Sub-node 01
+const uint16_t masterNode = 00; // Master node address
 
 int readingOffset = 0; // Offset to calibrate the scale
 
@@ -30,27 +32,49 @@ struct DataPacket
 
 void setup()
 {
-  Serial.begin(115200);
+  delay(5000);
+
+  pinMode(LED, OUTPUT);
+
+
+  Serial1.begin(9600);
+
+  while(!Serial1){
+    digitalWrite(LED, LOW);
+  }
+
+  delay(2000);
+  Serial1.println("Starting...");
+
+  digitalWrite(LED, HIGH);
 
   if (!radio.begin())
   {
-    Serial.println("NRF24L01 not detected!");
-    while (1)
-      ; // Halt if no module is found
+    while (1){
+      Serial1.println("NRF24L01 not detected!");
+      delay(1000);
+    }
   }
 
-  network.begin(90, thisNode); // Channel 90, Sub-node address
-  Serial.println("Sub-node initialized.");
+  Serial1.println("NRF24L01 detected!");
 
+  network.begin(90, thisNode); // Channel 90, Sub-node address
+  Serial1.println("Sub-node initialized.");
+
+  digitalWrite(LED, LOW);
+
+  Wire.setSDA(PB9);
+  Wire.setSCL(PB8);
   Wire.begin();
 
   if (myScale.begin() == false)
   {
-    Serial.println("Scale not detected. Please check wiring. Freezing...");
-    while (1)
-      ;
+    while (1){
+      Serial1.println("Scale not detected!");
+      delay(1000);
+    }
   }
-  Serial.println("Scale detected!");
+  Serial1.println("Scale detected!");
 
   myScale.powerUp(); // Power up scale. This scale takes ~600ms to boot and take reading.
 }
@@ -58,11 +82,6 @@ void setup()
 void loop()
 {
 
-  if(millis() % 1000 == 0){
-    digitalWrite(loadcell_switch, HIGH);
-  }else{
-    digitalWrite(loadcell_switch, LOW);
-  }
   // myScale.powerDown(); // Power down to ~200nA
   // delay(1000);
 
@@ -72,27 +91,29 @@ void loop()
     delay(1);
 
   int32_t currentReading = myScale.getReading();
-  // Serial.print("Startup time: ");
-  // Serial.print(millis() - startTime);
-  // Serial.print(", ");
-  Serial.println(currentReading);
+  // Serial1.print("Startup time: ");
+  // Serial1.print(millis() - startTime);
+  // Serial1.print(", ");
+  Serial1.println(currentReading);
 
   // Update the network to handle incoming/outgoing messages
   network.update();
 
+  uint32_t transmit_msg = abs(currentReading) / 100;
+
   // Send a message to the master node
-  DataPacket dataToSend = {random(0, 100)}; // Random sensor value for demonstration
+  DataPacket dataToSend = {transmit_msg};   // Random sensor value for demonstration
   RF24NetworkHeader header(masterNode);     // Header for the master node
   bool success = network.write(header, &dataToSend, sizeof(dataToSend));
 
   if (success)
   {
-    Serial.print("Message sent to master: ");
-    Serial.println(dataToSend.sensorValue);
+    Serial1.print("Message sent to master: ");
+    Serial1.println(dataToSend.sensorValue);
   }
   else
   {
-    //Serial.println("Message sending failed.");
+    //Serial1.println("Message sending failed.");
   }
 
   while (branchNode && network.available())
@@ -102,17 +123,17 @@ void loop()
     network.read(header, &message, sizeof(message));
 
     // Print the received message
-    Serial.print("Received message from Node ");
-    Serial.print(header.from_node);
-    Serial.print(": ");
-    Serial.println(message);
+    Serial1.print("Received message from Node ");
+    Serial1.print(header.from_node);
+    Serial1.print(": ");
+    Serial1.println(message);
 
     // Forward the message to the master (Node 00)
     RF24NetworkHeader forwardHeader(00); // Destination: Master Node
     network.write(forwardHeader, &message, sizeof(message));
 
-    Serial.println("Message relayed to Master Node (00).");
+    Serial1.println("Message relayed to Master Node (00).");
   }
 
-  delay(10);
+  delay(100);
 }
