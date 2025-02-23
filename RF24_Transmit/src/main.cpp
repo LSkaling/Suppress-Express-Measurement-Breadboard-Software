@@ -8,15 +8,24 @@
 #define CE_PIN PB1
 #define CSN_PIN PB0
 
+#define NODE_ID_0 PB5
+#define NODE_ID_1 PB4
+#define NODE_ID_2 PB3
+#define NODE_ID_3 PA12
+#define NODE_ID_4 PA11
+#define NODE_ID_5 PA8
+#define NODE_ID_6 PB15
+#define NODE_ID_7 PB14
+#define NODE_ID_8 PB13
+#define LEAF_NODE PB12
+
 #define LED PB10
 
 NAU7802 myScale; // Create instance of the NAU7802 class
 
-const bool branchNode = false; // Set to true if this node is a branch node
-
 // Assign this node a unique address
-const uint16_t thisNode = 01;   // Example: Sub-node 01
-const uint16_t masterNode = 00; // Master node address
+uint16_t masterNode;
+bool branchNode = false;
 
 int readingOffset = 0; // Offset to calibrate the scale
 
@@ -32,28 +41,40 @@ void setup()
 {
   delay(5000);
 
-// Fast sample-averaging
-#define POWER 4
-#define N_AVG (1 << POWER)
-int buffer[N_AVG];
-int read_index = 0;
-int writeMask = N_AVG - 1;
-int sum = 0;
+  pinMode(LED, OUTPUT);
 
-int readAvg(int in) {
-  sum -= buffer[read_index];
-  buffer[read_index] = in;
-  sum += in;
-  read_index++;
-  read_index &= writeMask;
-  return (sum >> POWER);
-}
+  pinMode(NODE_ID_0, INPUT);
+  pinMode(NODE_ID_1, INPUT);
+  pinMode(NODE_ID_2, INPUT);
+  pinMode(NODE_ID_3, INPUT);
+  pinMode(NODE_ID_4, INPUT);
+  pinMode(NODE_ID_5, INPUT);
+  pinMode(NODE_ID_6, INPUT);
+  pinMode(NODE_ID_7, INPUT);
+  pinMode(NODE_ID_8, INPUT);
+  pinMode(LEAF_NODE, INPUT);
 
-void setup() {
-  Serial.begin(115200);
+  int node_id = 0;
+  node_id |= digitalRead(NODE_ID_0) << 8;
+  node_id |= digitalRead(NODE_ID_1) << 7;
+  node_id |= digitalRead(NODE_ID_2) << 6;
+  node_id |= digitalRead(NODE_ID_3) << 5;
+  node_id |= digitalRead(NODE_ID_4) << 4;
+  node_id |= digitalRead(NODE_ID_5) << 3;
+  node_id |= digitalRead(NODE_ID_6) << 2;
+  node_id |= digitalRead(NODE_ID_7) << 1;
+  node_id |= digitalRead(NODE_ID_8) << 0;
 
+  if (node_id % 10 == 0) { // Branch node
+    masterNode = 00;
+    branchNode = true;
+  } else { //leaf node
+    masterNode = node_id / 10;
+  }
 
   Serial1.begin(9600);
+
+
 
   while(!Serial1){
     digitalWrite(LED, LOW);
@@ -74,7 +95,7 @@ void setup() {
 
   Serial1.println("NRF24L01 detected!");
 
-  network.begin(90, thisNode); // Channel 90, Sub-node address
+  network.begin(90, node_id); // Channel 90, Sub-node address
   Serial1.println("Sub-node initialized.");
 
   digitalWrite(LED, LOW);
@@ -91,6 +112,9 @@ void setup() {
     }
   }
   Serial1.println("Scale detected!");
+
+  Serial1.print("Node ID: ");
+  Serial1.println(node_id);
 
   myScale.powerUp(); // Power up scale. This scale takes ~600ms to boot and take reading.
 }
@@ -131,7 +155,6 @@ void loop()
   {
     //Serial1.println("Message sending failed.");
   }
-  */
 
   while (branchNode && network.available())
   {
@@ -151,5 +174,6 @@ void loop()
 
     Serial1.println("Message relayed to Master Node (00).");
   }
-  delay(1000 / 80); // ADC runs at 80 samples per second
+
+  delay(100);
 }
