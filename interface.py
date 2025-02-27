@@ -8,34 +8,20 @@ import pickle
 import os
 import time
 
-pad_x = 10
-pad_y = 10
-
-# Sensor physical arrangement
-# UI elements are in this order:
-# 0 1 2
-# 3 4 5
-# 6 7 8
-sensor_map = {1: 1}
+sensor_map = {1: 1, 2: 1, 3: 0}
 
 # Initial interface setup
 root = Tk()
-root.geometry("500x500")
+root.geometry("600x600")
 root.title("Measurement Station")
 default_font = tkFont.nametofont("TkDefaultFont")
 default_font.configure(family='Courier', size=16)
 text_font = tkFont.nametofont("TkTextFont")
 text_font.configure(family='Courier', size=16)
 
-# Connection form
-connect_panel = Frame(root)
-connect_panel.pack(side=TOP)
-ports = []
-ser = serial.Serial()
-ser.baudrate = 115200
-
 def port_scan():
     global ports
+    # Clear list and populate with current serial ports
     ports_list.delete(0, END)
     ports = serial.tools.list_ports.comports()
     for i in range(len(ports)):
@@ -51,26 +37,26 @@ def weight_to_cl(weight):
 
 # TODO: Allow for disconnection
 def update_measurement():
-    #print("Measuring")
+    print("Measuring")
     T = int(1000 / 80)
     #n_read = 0
-    timeout = int(T / 10)
+    timeout = int(1000 * T / 10)
     start = time.time()
 
     # Wait for updates from each node (not necessarily in order)
     for i in range(n_nodes):
         # Wait only for a bit
-        while not ser.in_waiting:
-            if (time.time() - start) > timeout:
-                print("Read timed out")
-                break
+        #while not ser.in_waiting:
+        if (time.time() - start) > timeout:
+            print("Read timed out")
+            break
 
         if ser.read(1) != b'\00':
             print("Error! Lost synchronization")
 
         id_byte = ser.read(4)
         id = int.from_bytes(id_byte, byteorder='little')
-        #print(f"ID {id_byte}: {id}")
+        print(f"ID {id_byte}: {id}")
 
         calib = 1
         zero = 0
@@ -97,7 +83,7 @@ def sync_serial():
     t = time.time()
     while bytes != b'\00':
         while not ser.in_waiting:
-            if (time.time() - t) > 0.01:
+            if (time.time() - t) > 0.1:
                 print("Nothing on that port")
                 ser.close()
                 return False
@@ -108,7 +94,10 @@ def sync_serial():
     # Throw out the rest of this packet
     #print(ser.read(8))
     ser.read(8)
-    update_measurement()
+    root.after(50, update_measurement)
+    #update_measurement()
+    print("After function call")
+    return True
 
 def port_select(event):
     global ser
@@ -118,22 +107,10 @@ def port_select(event):
     index = event.widget.curselection()[0]
     ser.port = ports[index].device
     ser.open()
+    #sync_serial()
     if sync_serial():
-        readout.pack()
         connect_panel.pack_forget()
-
-connect_label = Label(connect_panel, text="Not connected")
-ports_list = Listbox(connect_panel)
-ports_list.bind('<<ListboxSelect>>', port_select)
-scan_button = Button(connect_panel, text="Scan ports", command=port_scan)
-connect_label.pack()
-ports_list.pack()
-scan_button.pack()
-
-# Data readout display
-readout = Frame(root)
-#readout.grid(row=2, column=2)
-readout.pack()
+        readout.pack()
 
 def zero_all():
     for id in node_zeroes:
@@ -149,6 +126,26 @@ def calibrate(id):
     node_calibs[id] = actual_weight / (last_readings[id] - zero)
     pickle.dump(node_calibs, calib_file)
 
+# Serial connection interface
+connect_panel = Frame(root)
+connect_panel.pack(side=TOP)
+ports = []
+ser = serial.Serial()
+ser.baudrate = 115200
+
+connect_label = Label(connect_panel, text="Not connected")
+ports_list = Listbox(connect_panel)
+ports_list.bind('<<ListboxSelect>>', port_select)
+scan_button = Button(connect_panel, text="Scan ports", command=port_scan)
+connect_label.pack()
+ports_list.pack()
+scan_button.pack()
+
+# Data readout display
+readout = Frame(root)
+#readout.grid(row=2, column=2)
+readout.pack()
+
 zero_all_button = Button(readout, text = "Zero all", command=zero_all)
 zero_all_button.pack()
 
@@ -156,7 +153,7 @@ zero_all_button.pack()
 #n_rows = 3
 #n_cols = 3
 #n_nodes = n_rows * n_cols
-n_nodes = 9
+n_nodes = 1
 node_zeroes = {}
 node_calibs = {}
 last_readings = {}
