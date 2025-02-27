@@ -14,6 +14,7 @@ char serial_buf[9];
 
 struct DataPacket
 {
+  uint16_t node_id;
   int sensorValue;
 };
 
@@ -24,14 +25,16 @@ char mask_shift(int in, int shift)
 }
 
 // Pack a buffer of exactly 9 bytes for one sensor reading
-void pack_serial_packet(char* buf, int id, int data)
+void pack_serial_packet(char *buf, int id, int data)
 {
   buf[0] = 0;
-  for(int i = 0; i < 4; i++) {
-    buf[i+1] = mask_shift(id, i);
+  for (int i = 0; i < 4; i++)
+  {
+    buf[i + 1] = mask_shift(id, i);
   }
-  for(int i = 0; i < 4; i++) {
-    buf[i] = mask_shift(data, i);
+  for (int i = 0; i < 4; i++)
+  {
+    buf[i + 5] = mask_shift(data, i); // <-- Fix: Now writes to correct location
   }
 }
 
@@ -63,16 +66,17 @@ void loop()
     DataPacket receivedData;
     network.read(header, &receivedData, sizeof(receivedData));
     uint16_t nodeNumber = header.from_node;
+    uint16_t node_number_full = receivedData.node_id;
     int data = receivedData.sensorValue;
     pack_serial_packet(serial_buf, nodeNumber, data);
-    Serial.write(serial_buf, 9);
-    //Serial.write(zero);
-    //Serial.write(nodeNumber);
-    //Serial.print(": ");
-    //Serial.write(data);
-    //Serial.print(" ");
-    // if(nodeNumber == 3){
-    //   Serial.println(" ");
-    // }
+
+
+    Serial.print("Received data from node ");
+    Serial.print(node_number_full);
+    Serial.print(" (");
+    Serial.print(nodeNumber);
+    Serial.print("): ");
+    Serial.println(data);
+
   }
 }

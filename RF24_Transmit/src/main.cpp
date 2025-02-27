@@ -29,11 +29,14 @@ bool branchNode = false;
 
 int readingOffset = 0; // Offset to calibrate the scale
 
+int node_id = 0;
+
 RF24 radio(CE_PIN, CSN_PIN);
 RF24Network network(radio);
 
 struct DataPacket
 {
+  uint16_t sensorId; // Example data structure
   int sensorValue; // Example data structure
 };
 
@@ -54,7 +57,6 @@ void setup()
   pinMode(NODE_ID_8, INPUT);
   pinMode(LEAF_NODE, INPUT);
 
-  int node_id = 0;
   node_id |= digitalRead(NODE_ID_0) << 8;
   node_id |= digitalRead(NODE_ID_1) << 7;
   node_id |= digitalRead(NODE_ID_2) << 6;
@@ -69,12 +71,12 @@ void setup()
     masterNode = 00;
     branchNode = true;
   } else { //leaf node
-    masterNode = node_id / 10;
+    masterNode = node_id % 10;
   }
 
+  int scaled_node_id = (node_id / 10);
+
   Serial1.begin(9600);
-
-
 
   while(!Serial1){
     digitalWrite(LED, LOW);
@@ -95,7 +97,7 @@ void setup()
 
   Serial1.println("NRF24L01 detected!");
 
-  network.begin(90, node_id); // Channel 90, Sub-node address
+  network.begin(90, scaled_node_id); // Channel 90, Sub-node address
   Serial1.println("Sub-node initialized.");
 
   digitalWrite(LED, LOW);
@@ -115,6 +117,12 @@ void setup()
 
   Serial1.print("Node ID: ");
   Serial1.println(node_id);
+
+  Serial1.print("Master Node: ");
+  Serial1.println(masterNode);
+
+  Serial1.print("Scaled Node ID: ");
+  Serial1.println(scaled_node_id);
 
   myScale.powerUp(); // Power up scale. This scale takes ~600ms to boot and take reading.
 }
@@ -142,7 +150,7 @@ void loop()
   uint32_t transmit_msg = abs(currentReading) / 100;
 
   // Send a message to the master node
-  DataPacket dataToSend = {transmit_msg};   // Random sensor value for demonstration
+  DataPacket dataToSend = {node_id, transmit_msg};
   RF24NetworkHeader header(masterNode);     // Header for the master node
   bool success = network.write(header, &dataToSend, sizeof(dataToSend));
 
