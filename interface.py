@@ -8,16 +8,18 @@ import pickle
 import os
 import time
 
-sensor_map = {1: 1, 2: 1, 3: 0}
+sensor_map = {20: 0, 21: 1, 22: 2, 10: 3, 11: 4, 12: 5, 30: 6, 31: 7, 32: 8}
 
 # Initial interface setup
 root = Tk()
-root.geometry("600x600")
+root.geometry("1000x600")
 root.title("Measurement Station")
 default_font = tkFont.nametofont("TkDefaultFont")
 default_font.configure(family='Courier', size=16)
 text_font = tkFont.nametofont("TkTextFont")
 text_font.configure(family='Courier', size=16)
+
+t0 = 0
 
 def port_scan():
     global ports
@@ -38,65 +40,79 @@ def weight_to_cl(weight):
 # TODO: Allow for disconnection
 def update_measurement():
     print("Measuring")
-    T = int(1000 / 80)
-    #n_read = 0
-    timeout = int(1000 * T / 10)
-    start = time.time()
+    #T = int(1000 / 80)
+    T = 100
+    status = "Received node: weight "
 
     # Wait for updates from each node (not necessarily in order)
-    for i in range(n_nodes):
-        # Wait only for a bit
-        #while not ser.in_waiting:
-        if (time.time() - start) > timeout:
-            print("Read timed out")
-            break
+    while ser.in_waiting:
+        assert ser.in_waiting > 11, "Synchronization error (<12 bytes)"
+        with open("log.txt", "a") as logfile:
+            #print("Found " + str(ser.in_waiting) + " in buffer")
+            packet = ser.read(12)
 
-        if ser.read(1) != b'\00':
-            print("Error! Lost synchronization")
+            #sync_bytes = ser.read(4)
+            # Log entire packet in hex
+            logfile.write(packet.hex())
 
-        id_byte = ser.read(4)
-        id = int.from_bytes(id_byte, byteorder='little')
-        print(f"ID {id_byte}: {id}")
+            assert packet[1] == 255, "Synchronization error (missed sync bytes)"
 
-        calib = 1
-        zero = 0
-        if id in node_calibs:
-            calib = node_calibs[id]
-        if id in node_zeroes:
-            zero = node_zeroes[id]
+            #id_byte = ser.read(2)
+            id = packet[2]
+            #id = int.from_bytes(id_byte, byteorder='big')
+            status = status + str(id) + ", "
+            #print(f"ID {id_byte}: {id}")
+            logfile.write("\nNode ID " + str(id))
 
-        reading_bytes = ser.read(4)
-        reading = int.from_bytes(reading_bytes, byteorder='little')
-        last_readings[id] = reading
-        #print(f"Reading: {reading_bytes}, or {reading}")
-        last_readings[id] = reading
-        weight = (reading - zero) * calib
-        #print(f"Reads {reading} for weight {weight}")
+            #print(ser.read(2))
+            #logfile.write("spare bytes: " + ser.read(2).hex())
 
-        # Update canvas to show new coverage level
-        draw_cup(node_cls[sensor_map[id]], cl=weight, scale=0.5)
-        root.after(T, update_measurement)
+            calib = 1
+            zero = 0
+            if id in node_calibs:
+                logfile.write(" -c- ")
+                calib = node_calibs[id]
+            if id in node_zeroes:
+                zero = node_zeroes[id]
+
+            #reading_bytes = ser.read(4)
+            #reading = int.from_bytes(reading_bytes, byteorder='little')
+            reading = packet[3]
+            #print(f"Reading: {reading_bytes}, or {reading}")
+            last_readings[id] = reading
+            weight = (reading - zero) * calib
+            #print(f"Reads {reading} for weight {weight}")
+
+            # Update canvas to show new coverage level
+            logfile.write("   Reading: " + str(reading) + "\n")
+            draw_cup(node_cls[sensor_map[id]], cl=weight, scale=0.5)
+
+    status = status + "at time T + " + str(time.time() - t0) + "\n"
+    print(status)
+    root.after(T, update_measurement)
 
 def sync_serial():
-    bytes = b'\01'
+    bytes = b'\00'
     print("Syncing")
     t = time.time()
-    while bytes != b'\00':
+    while bytes != b'\xff\xff\xff\xff':
         while not ser.in_waiting:
-            if (time.time() - t) > 0.1:
+            if (time.time() - t) > 0.5:
                 print("Nothing on that port")
                 ser.close()
                 return False
 
-        bytes = ser.read(1)
+        bytes = ser.read(4)
         #print(bytes)
     print("Synced")
     # Throw out the rest of this packet
     #print(ser.read(8))
     ser.read(8)
+    # Start measurements
+    global t0
+    t0 = time.time()
     root.after(50, update_measurement)
-    #update_measurement()
-    print("After function call")
+    #print("After function call")
     return True
 
 def port_select(event):
@@ -153,7 +169,7 @@ zero_all_button.pack()
 #n_rows = 3
 #n_cols = 3
 #n_nodes = n_rows * n_cols
-n_nodes = 1
+n_nodes = 9
 node_zeroes = {}
 node_calibs = {}
 last_readings = {}
@@ -186,7 +202,7 @@ def draw_cup(canvas, cl, scale):
     water = cup_pts(scale, 0.9)
     canvas.create_polygon(*water, fill='blue', outline='', tags="temp")
     canvas.create_polygon(*cup_outline, fill='', outline='black', width = 2 * scale, tags="static")
-    canvas.create_text(50, 30, text = str(round(cl)), fill = "black", font = f"TkDefaultFont {int(24 * scale)}", tags="temp")
+    canvas.create_text(100 * scale, 60 * scale, text = str(round(cl)), fill = "black", font = f"TkDefaultFont {int(24 * scale)}", tags="temp")
 
 # Set up a panel for each node
 i = 0
