@@ -7,6 +7,8 @@
 
 const uint16_t thisNode = 00; // Master node address
 
+int time_of_last_packet = 0;
+
 RF24 radio(CE_PIN, CSN_PIN);
 RF24Network network(radio);
 
@@ -59,9 +61,17 @@ void loop()
 {
   network.update();
 
+  if (millis() - time_of_last_packet > 1100)
+  {
+    Serial.println("Missed 5 packets");
+    time_of_last_packet = millis();
+  }
+
   // Check for incoming messages
  while (network.available())
   {
+    time_of_last_packet = millis();
+
     RF24NetworkHeader header;
     DataPacket receivedData;
     network.read(header, &receivedData, sizeof(receivedData));

@@ -29,7 +29,11 @@ bool branchNode = false;
 
 int readingOffset = 0; // Offset to calibrate the scale
 
+const int time_between_readings = 500; // Time between readings in milliseconds
+
 int node_id = 0;
+
+int lastReadingMillis = 0;
 
 RF24 radio(CE_PIN, CSN_PIN);
 RF24Network network(radio);
@@ -71,7 +75,7 @@ void setup()
     masterNode = 00;
     branchNode = true;
   } else { //leaf node
-    masterNode = node_id % 10;
+    masterNode = node_id / 10;
   }
 
   int scaled_node_id = (node_id / 10);
@@ -129,40 +133,39 @@ void setup()
 
 void loop()
 {
+  if (millis() - lastReadingMillis > time_between_readings)
+  {
+    while (myScale.available() == false)
+      digitalWrite(LED, HIGH);
+    digitalWrite(LED, LOW);
 
-  // myScale.powerDown(); // Power down to ~200nA
-  // delay(1000);
+    int32_t currentReading = myScale.getReading();
+    Serial1.println(currentReading);
 
-  // Time how long it takes for scale to take a reading
-  unsigned long startTime = millis();
-  while (myScale.available() == false)
-    delay(1);
 
-  int32_t currentReading = myScale.getReading();
-  // Serial1.print("Startup time: ");
-  // Serial1.print(millis() - startTime);
-  // Serial1.print(", ");
-  Serial1.println(currentReading);
+
+    uint32_t transmit_msg = abs(currentReading) / 100;
+
+    // Send a message to the master node
+    DataPacket dataToSend = {node_id, transmit_msg};
+    RF24NetworkHeader header(masterNode);     // Header for the master node
+    bool success = network.write(header, &dataToSend, sizeof(dataToSend));
+
+    if (success)
+    {
+      Serial1.print("Message sent to master: ");
+      Serial1.println(dataToSend.sensorValue);
+    }
+    else
+    {
+      //Serial1.println("Message sending failed.");
+    }
+
+    lastReadingMillis = millis();
+  }
 
   // Update the network to handle incoming/outgoing messages
   network.update();
-
-  uint32_t transmit_msg = abs(currentReading) / 100;
-
-  // Send a message to the master node
-  DataPacket dataToSend = {node_id, transmit_msg};
-  RF24NetworkHeader header(masterNode);     // Header for the master node
-  bool success = network.write(header, &dataToSend, sizeof(dataToSend));
-
-  if (success)
-  {
-    Serial1.print("Message sent to master: ");
-    Serial1.println(dataToSend.sensorValue);
-  }
-  else
-  {
-    //Serial1.println("Message sending failed.");
-  }
 
   while (branchNode && network.available())
   {
@@ -183,5 +186,4 @@ void loop()
     Serial1.println("Message relayed to Master Node (00).");
   }
 
-  delay(100);
 }
