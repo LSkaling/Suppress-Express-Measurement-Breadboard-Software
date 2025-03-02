@@ -39,10 +39,10 @@ def weight_to_cl(weight):
 
 # TODO: Allow for disconnection
 def update_measurement():
-    print("Measuring")
+    #print("Measuring")
     #T = int(1000 / 80)
     T = 100
-    status = "Received node: weight "
+    #status = "Received node: weight "
 
     # Wait for updates from each node (not necessarily in order)
     while ser.in_waiting:
@@ -54,41 +54,36 @@ def update_measurement():
             #sync_bytes = ser.read(4)
             # Log entire packet in hex
             logfile.write(packet.hex())
+            assert int.from_bytes(packet[0:4]) == (2**32 - 1), "Synchronization error (missed sync bytes)"
 
-            assert packet[1] == 255, "Synchronization error (missed sync bytes)"
-
-            #id_byte = ser.read(2)
-            id = packet[2]
-            #id = int.from_bytes(id_byte, byteorder='big')
-            status = status + str(id) + ", "
+            id = int.from_bytes(packet[4:8], byteorder='little')
+            #status = status + str(id) + ", "
             #print(f"ID {id_byte}: {id}")
-            logfile.write("\nNode ID " + str(id))
+            logfile.write("\nID" + str(id))
+            if id in sensor_map:
+                calib = 0.142
+                zero = 0
+                unit = ""
+                if id in node_calibs:
+                    #logfile.write(" -c- ")
+                    calib = node_calibs[id]
+                    unit = "g"
+                if id in node_zeroes:
+                    zero = node_zeroes[id]
 
-            #print(ser.read(2))
-            #logfile.write("spare bytes: " + ser.read(2).hex())
+                reading = int.from_bytes(packet[8:12], byteorder='little')
+                last_readings[id] = reading
+                weight = (reading - zero) * calib
+                last_weights[id] = weight
 
-            calib = 1
-            zero = 0
-            if id in node_calibs:
-                logfile.write(" -c- ")
-                calib = node_calibs[id]
-            if id in node_zeroes:
-                zero = node_zeroes[id]
+                # Update canvas to show new coverage level
+                logfile.write(" r" + str(reading) + " t" + str(round(time.time() - t0, 2)) + "\n")
+                draw_cup(node_cls[sensor_map[id]], cl=weight, scale=0.5, unit=unit)
+            else:
+                logfile.write("ERROR")
 
-            #reading_bytes = ser.read(4)
-            #reading = int.from_bytes(reading_bytes, byteorder='little')
-            reading = packet[3]
-            #print(f"Reading: {reading_bytes}, or {reading}")
-            last_readings[id] = reading
-            weight = (reading - zero) * calib
-            #print(f"Reads {reading} for weight {weight}")
-
-            # Update canvas to show new coverage level
-            logfile.write("   Reading: " + str(reading) + "\n")
-            draw_cup(node_cls[sensor_map[id]], cl=weight, scale=0.5)
-
-    status = status + "at time T + " + str(time.time() - t0) + "\n"
-    print(status)
+    #status = status + "at time T + " + str(time.time() - t0) + "\n"
+    #print(status)
     root.after(T, update_measurement)
 
 def sync_serial():
@@ -111,6 +106,8 @@ def sync_serial():
     # Start measurements
     global t0
     t0 = time.time()
+    with open("log.txt", "a") as logfile:
+        logfile.write("\nBeginning session at time " + str(round(t0, 2)) + "\n")
     root.after(50, update_measurement)
     #print("After function call")
     return True
@@ -129,9 +126,8 @@ def port_select(event):
         readout.pack()
 
 def zero_all():
-    for id in node_zeroes:
-        if id in last_readings:
-            node_zeroes[id] = last_readings[id]
+    for id in last_readings:
+        node_zeroes[id] = last_readings[id]
 
 def calibrate(id):
     print(id)
@@ -140,7 +136,8 @@ def calibrate(id):
     zero = last_readings[id]
     actual_weight = askfloat(f"Calibrate node ${id}", "Add something, then enter its weight:")
     node_calibs[id] = actual_weight / (last_readings[id] - zero)
-    pickle.dump(node_calibs, calib_file)
+    with open("calib.pkl", "wb") as calib_file:
+        pickle.dump(node_calibs, calib_file)
 
 # Serial connection interface
 connect_panel = Frame(root)
@@ -173,6 +170,7 @@ n_nodes = 9
 node_zeroes = {}
 node_calibs = {}
 last_readings = {}
+last_weights = {}
 node_cls = []
 
 # Sub-panels for individual nodes: ID label, CL display, calibrate switch
@@ -196,13 +194,13 @@ def cup_pts(scale, height):
         (left + full_width - taper * (1 - height), top)
     )
 
-def draw_cup(canvas, cl, scale):
+def draw_cup(canvas, cl, scale, unit):
     canvas.delete("all")
     cup_outline = cup_pts(scale, 0.6)
     water = cup_pts(scale, 0.9)
     canvas.create_polygon(*water, fill='blue', outline='', tags="temp")
     canvas.create_polygon(*cup_outline, fill='', outline='black', width = 2 * scale, tags="static")
-    canvas.create_text(100 * scale, 60 * scale, text = str(round(cl)), fill = "black", font = f"TkDefaultFont {int(24 * scale)}", tags="temp")
+    canvas.create_text(100 * scale, 60 * scale, text = str(round(cl, 1)) + unit, fill = "black", font = f"TkDefaultFont {int(24 * scale)}", tags="temp")
 
 # Set up a panel for each node
 i = 0
@@ -212,7 +210,7 @@ for i in range(n_nodes):
         node_panels.append(Frame(readout))
         node_labels.append(Label(node_panels[-1], text = f"Sensor {i}"))
         node_cls.append(Canvas(node_panels[-1], width = 100, height = 45, bg='white'))
-        draw_cup(node_cls[i], 0, 0.5)
+        draw_cup(node_cls[i], 0, 0.5, "")
         node_switches_calib.append(Button(node_panels[-1], text = "Calibrate", command=lambda: calibrate(i+1)))
         node_panels[i].pack(side=LEFT)
         #node_panels[i].grid(row=r, column=c)
@@ -225,7 +223,10 @@ for i in range(n_nodes):
 calibs_file_path = 'calib.pkl'
 if os.path.exists(calibs_file_path):
     with open(calibs_file_path, 'rb') as calib_file:
+        #print("Loading calibration")
         node_calibs = pickle.load(calib_file)
+        #print("Calibration: ")
+        #print(node_calibs)
 else:
     with open(calibs_file_path, 'wb') as calib_file:
         pickle.dump(node_calibs, calib_file)
