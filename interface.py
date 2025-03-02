@@ -1,3 +1,19 @@
+"""
+Tkinter interface to manage measurement system
+Ben Lees, 2024-2025
+
+Implemented:
+ - Select serial port in GUI
+ - Read serial data from receiver
+ - Display current measurement level in GUI
+ - Zero and calibrate nodes in GUI
+ - Comprehensive data logging
+Not yet implemented:
+ - Monitor and troubleshoot connection status
+ - Dynamically manage node layout (hardcoded for now)
+ - "Snapshot" data logging
+"""
+
 import serial
 import serial.tools.list_ports
 from tkinter import *
@@ -8,7 +24,12 @@ import pickle
 import os
 import time
 
+# Maps sensor IDs to indices
 sensor_map = {20: 0, 21: 1, 22: 2, 10: 3, 11: 4, 12: 5, 30: 6, 31: 7, 32: 8}
+# Indices take following row-column indexing (hardcoded for 3x3 prototype):
+# 0 1 2
+# 3 4 5
+# 6 7 8
 
 # Initial interface setup
 root = Tk()
@@ -18,8 +39,6 @@ default_font = tkFont.nametofont("TkDefaultFont")
 default_font.configure(family='Courier', size=16)
 text_font = tkFont.nametofont("TkTextFont")
 text_font.configure(family='Courier', size=16)
-
-t0 = 0
 
 def port_scan():
     global ports
@@ -51,7 +70,6 @@ def update_measurement():
             #print("Found " + str(ser.in_waiting) + " in buffer")
             packet = ser.read(12)
 
-            #sync_bytes = ser.read(4)
             # Log entire packet in hex
             logfile.write(packet.hex())
             assert int.from_bytes(packet[0:4]) == (2**32 - 1), "Synchronization error (missed sync bytes)"
@@ -92,7 +110,7 @@ def sync_serial():
     t = time.time()
     while bytes != b'\xff\xff\xff\xff':
         while not ser.in_waiting:
-            if (time.time() - t) > 0.5:
+            if (time.time() - t) > 1:
                 print("Nothing on that port")
                 ser.close()
                 return False
@@ -138,6 +156,7 @@ def calibrate(id):
     node_calibs[id] = actual_weight / (last_readings[id] - zero)
     with open("calib.pkl", "wb") as calib_file:
         pickle.dump(node_calibs, calib_file)
+    showinfo(message="Calibrated & saved")
 
 # Serial connection interface
 connect_panel = Frame(root)
@@ -156,11 +175,9 @@ scan_button.pack()
 
 # Data readout display
 readout = Frame(root)
-#readout.grid(row=2, column=2)
-readout.pack()
 
 zero_all_button = Button(readout, text = "Zero all", command=zero_all)
-zero_all_button.pack()
+zero_all_button.grid(row=0, column=0, columnspan=100)
 
 # TODO: Learn node IDs and calibration from output node
 #n_rows = 3
@@ -204,16 +221,16 @@ def draw_cup(canvas, cl, scale, unit):
 
 # Set up a panel for each node
 i = 0
-#for r in range(n_rows):
-#    for c in range(n_cols):
-for i in range(n_nodes):
+n_rows = 3
+n_cols = 3
+for r in range(n_rows):
+    for c in range(n_cols):
         node_panels.append(Frame(readout))
         node_labels.append(Label(node_panels[-1], text = f"Sensor {i}"))
         node_cls.append(Canvas(node_panels[-1], width = 100, height = 45, bg='white'))
         draw_cup(node_cls[i], 0, 0.5, "")
         node_switches_calib.append(Button(node_panels[-1], text = "Calibrate", command=lambda: calibrate(i+1)))
-        node_panels[i].pack(side=LEFT)
-        #node_panels[i].grid(row=r, column=c)
+        node_panels[i].grid(row=r+1, column=c)
         node_labels[i].pack()
         node_cls[i].pack()
         node_switches_calib[i].pack()
@@ -231,5 +248,7 @@ else:
     with open(calibs_file_path, 'wb') as calib_file:
         pickle.dump(node_calibs, calib_file)
 
-readout.pack_forget()
+t0 = 0
+
+#readout.pack_forget()
 root.mainloop()
