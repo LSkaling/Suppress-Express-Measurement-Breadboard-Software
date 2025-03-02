@@ -25,7 +25,9 @@ import os
 import time
 
 # Maps sensor IDs to indices
-sensor_map = {20: 0, 21: 1, 22: 2, 10: 3, 11: 4, 12: 5, 30: 6, 31: 7, 32: 8}
+sensor_map = {1: 0, 2: 1, 3: 2,
+              4: 3, 5: 4, 10: 5,
+              11: 6, 12: 7, 13: 8}
 # Indices take following row-column indexing (hardcoded for 3x3 prototype):
 # 0 1 2
 # 3 4 5
@@ -72,7 +74,7 @@ def update_measurement():
 
             # Log entire packet in hex
             logfile.write(packet.hex())
-            assert int.from_bytes(packet[0:4]) == (2**32 - 1), "Synchronization error (missed sync bytes)"
+            assert int.from_bytes(packet[0:4], 'little') == (2**32 - 1), "Synchronization error (missed sync bytes)"
 
             id = int.from_bytes(packet[4:8], byteorder='little')
             #status = status + str(id) + ", "
