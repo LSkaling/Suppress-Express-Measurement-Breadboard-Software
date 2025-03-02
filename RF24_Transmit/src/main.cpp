@@ -31,12 +31,33 @@ int readingOffset = 0; // Offset to calibrate the scale
 
 const int time_between_readings = 500; // Time between readings in milliseconds
 
-int node_id = 0;
+uint16_t node_id = 0;
 
 int lastReadingMillis = 0;
 
 RF24 radio(CE_PIN, CSN_PIN);
 RF24Network network(radio);
+
+uint16_t readDIPSwitch()
+{
+  uint16_t address = 0;
+  address |= digitalRead(NODE_ID_0) << 8;
+  address |= digitalRead(NODE_ID_1) << 7;
+  address |= digitalRead(NODE_ID_2) << 6;
+  address |= digitalRead(NODE_ID_3) << 5;
+  address |= digitalRead(NODE_ID_4) << 4;
+  address |= digitalRead(NODE_ID_5) << 3;
+  address |= digitalRead(NODE_ID_6) << 2;
+  address |= digitalRead(NODE_ID_7) << 1;
+  address |= digitalRead(NODE_ID_8) << 0;
+  return address;
+}
+
+bool isBranchNode(uint16_t node_address)
+{
+  // If you consider the master node (0) also as a "branch," remove the second check.
+  return (node_address % 8 == 0) && (node_address != 0);
+}
 
 struct DataPacket
 {
@@ -61,24 +82,14 @@ void setup()
   pinMode(NODE_ID_8, INPUT);
   pinMode(LEAF_NODE, INPUT);
 
-  node_id |= digitalRead(NODE_ID_0) << 8;
-  node_id |= digitalRead(NODE_ID_1) << 7;
-  node_id |= digitalRead(NODE_ID_2) << 6;
-  node_id |= digitalRead(NODE_ID_3) << 5;
-  node_id |= digitalRead(NODE_ID_4) << 4;
-  node_id |= digitalRead(NODE_ID_5) << 3;
-  node_id |= digitalRead(NODE_ID_6) << 2;
-  node_id |= digitalRead(NODE_ID_7) << 1;
-  node_id |= digitalRead(NODE_ID_8) << 0;
+  uint16_t node_address = readDIPSwitch();
+  uint16_t parent_address = node_address >> 3; // Assuming a 3-bit branch depth
 
-  if (node_id % 10 == 0) { // Branch node
-    masterNode = 00;
-    branchNode = true;
-  } else { //leaf node
-    masterNode = node_id / 10;
-  }
+  node_id = node_address;
 
-  int scaled_node_id = (node_id / 10);
+  branchNode = isBranchNode(node_address);
+
+  masterNode = node_id >> 3;
 
   Serial1.begin(9600);
 
@@ -101,7 +112,6 @@ void setup()
 
   Serial1.println("NRF24L01 detected!");
 
-  network.begin(90, scaled_node_id); // Channel 90, Sub-node address
   Serial1.println("Sub-node initialized.");
 
   digitalWrite(LED, LOW);
@@ -119,71 +129,77 @@ void setup()
   }
   Serial1.println("Scale detected!");
 
-  Serial1.print("Node ID: ");
-  Serial1.println(node_id);
-
-  Serial1.print("Master Node: ");
-  Serial1.println(masterNode);
-
-  Serial1.print("Scaled Node ID: ");
-  Serial1.println(scaled_node_id);
+  Serial1.print("Node Address: ");
+  Serial1.println(node_address, OCT);
+  Serial1.print("Parent Address: ");
+  Serial1.println(parent_address, OCT);
 
   myScale.powerUp(); // Power up scale. This scale takes ~600ms to boot and take reading.
+
+  network.begin(90, node_id); // Channel 90, Sub-node address
 }
 
 void loop()
 {
-  if (millis() - lastReadingMillis > time_between_readings)
-  {
-    while (myScale.available() == false)
-      digitalWrite(LED, HIGH);
-    digitalWrite(LED, LOW);
+  // if (millis() - lastReadingMillis > time_between_readings)
+  // {
+  //   while (myScale.available() == false)
+  //     digitalWrite(LED, HIGH);
+  //   digitalWrite(LED, LOW);
 
-    int32_t currentReading = myScale.getReading();
-    Serial1.println(currentReading);
+  int32_t currentReading = myScale.getReading();
+  //   Serial1.println(currentReading);
 
 
 
-    uint32_t transmit_msg = abs(currentReading) / 100;
+  uint32_t transmit_msg = abs(currentReading) / 100;
 
-    // Send a message to the master node
-    DataPacket dataToSend = {node_id, transmit_msg};
-    RF24NetworkHeader header(masterNode);     // Header for the master node
-    bool success = network.write(header, &dataToSend, sizeof(dataToSend));
+  //   // Send a message to the master node
+  //   DataPacket dataToSend = {node_id, transmit_msg};
+  //   RF24NetworkHeader header(masterNode);     // Header for the master node
+  //   bool success = network.write(header, &dataToSend, sizeof(dataToSend));
 
-    if (success)
-    {
-      Serial1.print("Message sent to master: ");
-      Serial1.println(dataToSend.sensorValue);
-    }
-    else
-    {
-      //Serial1.println("Message sending failed.");
-    }
+  //   if (success)
+  //   {
+  //     Serial1.print("Message sent to master: ");
+  //     Serial1.println(dataToSend.sensorValue);
+  //   }
+  //   else
+  //   {
+  //     //Serial1.println("Message sending failed.");
+  //   }
 
-    lastReadingMillis = millis();
-  }
+  //   lastReadingMillis = millis();
+  // }
 
   // Update the network to handle incoming/outgoing messages
   network.update();
 
-  while (branchNode && network.available())
+  static unsigned long lastSend;
+  if (millis() - lastSend > 1000 && node_id != 0)
   {
-    RF24NetworkHeader header;
-    char message[32];
-    network.read(header, &message, sizeof(message));
+    lastSend = millis();
 
-    // Print the received message
-    Serial1.print("Received message from Node ");
-    Serial1.print(header.from_node);
-    Serial1.print(": ");
-    Serial1.println(message);
+    // Suppose we read from scale (dummy example):
+    int32_t scaleReading = 123;
+    // if (myScale.available()) scaleReading = myScale.getReading();
 
-    // Forward the message to the master (Node 00)
-    RF24NetworkHeader forwardHeader(00); // Destination: Master Node
-    network.write(forwardHeader, &message, sizeof(message));
+    DataPacket pkt;
+    pkt.sensorId = node_id; // who am I
+    pkt.sensorValue = transmit_msg;
 
-    Serial1.println("Message relayed to Master Node (00).");
+    // **Auto-routing** to master (address=0)
+    RF24NetworkHeader masterHeader(0);
+    bool ok = network.write(masterHeader, &pkt, sizeof(pkt));
+
+    if (ok)
+    {
+      Serial1.print("Auto-routed to master: ");
+      Serial1.println(pkt.sensorValue);
+    }
+    else
+    {
+      Serial1.println("Send failed!");
+    }
   }
-
 }
