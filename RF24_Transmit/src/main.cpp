@@ -186,11 +186,8 @@ void loop()
 
     DataPacket pkt;
     pkt.sensorId = node_id; // who am I
-<<<<<<< Updated upstream
     pkt.sensorValue = transmit_msg;
-=======
     pkt.sensorValue = currentReading;
->>>>>>> Stashed changes
 
     // **Auto-routing** to master (address=0)
     RF24NetworkHeader masterHeader(0);
